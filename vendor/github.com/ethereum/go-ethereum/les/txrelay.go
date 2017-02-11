@@ -35,6 +35,8 @@ type LesTxRelay struct {
 	peerList     []*peer
 	peerStartPos int
 	lock         sync.RWMutex
+
+	reqDist *requestDistributor
 }
 
 func NewLesTxRelay() *LesTxRelay {
@@ -108,10 +110,19 @@ func (self *LesTxRelay) send(txs types.Transactions, count int) {
 	}
 
 	for p, list := range sendTo {
-		cost := p.GetRequestCost(SendTxMsg, len(list))
-		go func(p *peer, list types.Transactions, cost uint64) {
-			p.SendTxs(cost, list)
-		}(p, list, cost)
+		pp := p
+		ll := list
+
+		rq := newDistReq(func(peer *peer) uint64 {
+			return peer.GetRequestCost(SendTxMsg, len(ll))
+		}, func(peer *peer) bool {
+			return peer == pp
+		}, func(reqID uint64, peer *peer) {
+			cost := peer.GetRequestCost(SendTxMsg, len(ll))
+			peer.fcServer.SendRequest(reqID, cost)
+			go peer.SendTxs(reqID, cost, ll)
+		})
+		self.reqDist.queue(rq)
 	}
 }
 

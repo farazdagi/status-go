@@ -103,6 +103,7 @@ type ProtocolManager struct {
 	odr         *LesOdr
 	server      *LesServer
 	serverPool  *serverPool
+	reqDist     *requestDistributor
 
 	downloader *downloader.Downloader
 	fetcher    *lightFetcher
@@ -205,8 +206,10 @@ func NewProtocolManager(chainConfig *params.ChainConfig, lightSync bool, network
 			blockchain.InsertHeaderChain, nil, nil, blockchain.Rollback, removePeer)
 	}
 
+	manager.reqDist = newRequestDistributor(func() map[*peer]struct{} { return manager.serverPool.getAllPeers() }, manager.quitSync)
 	if odr != nil {
 		odr.removePeer = removePeer
+		odr.reqDist = manager.reqDist
 	}
 
 	/*validator := func(block *types.Block, parent *types.Block) error {
@@ -339,18 +342,36 @@ func (pm *ProtocolManager) handle(p *peer) error {
 	glog.V(logger.Debug).Infof("LES: register peer %v", p.id)
 	if pm.lightSync {
 		requestHeadersByHash := func(origin common.Hash, amount int, skip int, reverse bool) error {
-			reqID := getNextReqID()
-			cost := p.GetRequestCost(GetBlockHeadersMsg, amount)
-			p.fcServer.MustAssignRequest(reqID)
-			p.fcServer.SendRequest(reqID, cost)
-			return p.RequestHeadersByHash(reqID, cost, origin, amount, skip, reverse)
+			rq := newDistReq(func(peer *peer) uint64 {
+				return peer.GetRequestCost(GetBlockHeadersMsg, amount)
+			}, func(peer *peer) bool {
+				return peer == p
+			}, func(reqID uint64, peer *peer) {
+				cost := peer.GetRequestCost(GetBlockHeadersMsg, amount)
+				peer.fcServer.SendRequest(reqID, cost)
+				go peer.RequestHeadersByHash(reqID, cost, origin, amount, skip, reverse)
+			})
+			_, ok := <-pm.reqDist.queue(rq)
+			if !ok {
+				return ErrNoPeers
+			}
+			return nil
 		}
 		requestHeadersByNumber := func(origin uint64, amount int, skip int, reverse bool) error {
-			reqID := getNextReqID()
-			cost := p.GetRequestCost(GetBlockHeadersMsg, amount)
-			p.fcServer.MustAssignRequest(reqID)
-			p.fcServer.SendRequest(reqID, cost)
-			return p.RequestHeadersByNumber(reqID, cost, origin, amount, skip, reverse)
+			rq := newDistReq(func(peer *peer) uint64 {
+				return peer.GetRequestCost(GetBlockHeadersMsg, amount)
+			}, func(peer *peer) bool {
+				return peer == p
+			}, func(reqID uint64, peer *peer) {
+				cost := peer.GetRequestCost(GetBlockHeadersMsg, amount)
+				peer.fcServer.SendRequest(reqID, cost)
+				go peer.RequestHeadersByNumber(reqID, cost, origin, amount, skip, reverse)
+			})
+			_, ok := <-pm.reqDist.queue(rq)
+			if !ok {
+				return ErrNoPeers
+			}
+			return nil
 		}
 		if err := pm.downloader.RegisterPeer(p.id, ethVersion, p.HeadAndTd,
 			requestHeadersByHash, requestHeadersByNumber, nil, nil, nil); err != nil {

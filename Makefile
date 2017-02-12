@@ -4,7 +4,7 @@
 GOBIN = build/bin
 GO ?= latest
 
-statusgo:
+statusgo: generate
 	build/env.sh go build -i -o $(GOBIN)/statusgo -v $(shell build/testnet-flags.sh) ./cmd/status
 	@echo "status go compilation done."
 	@echo "Run \"build/bin/statusgo\" to view available commands"
@@ -26,7 +26,7 @@ statusgo-ios-simulator: xgo
 	build/env.sh $(GOBIN)/xgo --image farazdagi/xgo-ios-simulator --go=$(GO) -out statusgo --dest=$(GOBIN) --targets=ios-9.3/framework -v $(shell build/testnet-flags.sh) ./cmd/status
 	@echo "iOS framework cross compilation done."
 
-xgo:
+xgo: generate
 	build/env.sh docker pull farazdagi/xgo
 	build/env.sh go get github.com/karalabe/xgo
 
@@ -47,7 +47,10 @@ statusgo-ios-simulator-mainnet: xgo
 	build/env.sh $(GOBIN)/xgo --image farazdagi/xgo-ios-simulator --go=$(GO) -out statusgo --dest=$(GOBIN) --targets=ios-9.3/framework -v $(shell build/mainnet-flags.sh) ./cmd/status
 	@echo "iOS framework cross compilation done (mainnet)."
 
-ci:
+generate:
+	build/env.sh go generate -x ./jail
+
+ci: generate
 	build/env.sh go test -v -cover ./geth
 	build/env.sh go test -v -cover ./jail
 	build/env.sh go test -v -cover ./extkeys

@@ -1,5 +1,7 @@
 package jail
 
+//go:generate docker run --rm -w /vol -v $PWD/jail:/vol farazdagi/go-bindata -pkg $GOPACKAGE -o assets.go assets/
+
 import (
 	"encoding/json"
 	"errors"
@@ -95,7 +97,13 @@ func (jail *Jail) Parse(chatId string, js string) string {
 	localStorage, _ := vm.Get("localStorage")
 	localStorage.Object().Set("set", makeLocalStorageSetHandler(chatId))
 
-	jjs := Web3_JS + `
+	// load web3.js asset
+	web3Code, err := Asset("assets/web3.js")
+	if err != nil {
+		return printError(err.Error())
+	}
+
+	jjs := (string)(web3Code) + `
 	var Web3 = require('web3');
 	var web3 = new Web3(jeth);
 	var Bignumber = require("bignumber.js");

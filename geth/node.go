@@ -106,13 +106,11 @@ func (n *Node) Inited() bool {
 
 // MakeNode create a geth node entity
 func MakeNode(config *NodeConfig) *Node {
-	glog.CopyStandardLogTo("INFO")
-	glog.SetToStderr(true)
-
 	dataDir := config.DataDir
 	if UseTestnet {
 		dataDir = filepath.Join(config.DataDir, "testnet")
 	}
+	configureLogs(dataDir)
 
 	// exposed RPC APIs
 	exposedAPIs := "db,eth,net,web3,shh,personal,admin" // TODO remove "admin" on main net
@@ -212,6 +210,23 @@ func activateShhService(stack *node.Node) error {
 	if err := stack.Register(serviceConstructor); err != nil {
 		return err
 	}
+
+	return nil
+}
+
+// configureLogs setups log forwarding
+func configureLogs(logDir string) error {
+	// make sure that logs directory exists
+	logDir = path.Join(logDir, "logs")
+	if _, err := os.Stat(logDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(logDir, 0755); err != nil {
+			return err
+		}
+	}
+
+	//glog.SetV(logger.Debug)
+	glog.CopyStandardLogTo("INFO")
+	glog.SetLogDir(logDir)
 
 	return nil
 }

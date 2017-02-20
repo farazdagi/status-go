@@ -97,6 +97,9 @@ func LoadFromFile(filename string) string {
 }
 
 func PrepareTestNode() (err error) {
+	// make sure that logs are dumped to stderr (on tests)
+	glog.SetToStderr(true)
+
 	muPrepareTestNode.Lock()
 	defer muPrepareTestNode.Unlock()
 

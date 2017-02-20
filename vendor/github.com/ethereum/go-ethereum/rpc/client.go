@@ -264,6 +264,7 @@ func (c *Client) CallContext(ctx context.Context, result interface{}, method str
 	}
 
 	// dispatch has accepted the request and will close the channel it when it quits.
+	glog.Infoln("op.wait started")
 	switch resp, err := op.wait(ctx); {
 	case err != nil:
 		return err
@@ -408,10 +409,12 @@ func (c *Client) newMessage(method string, paramsIn ...interface{}) (*jsonrpcMes
 func (c *Client) send(ctx context.Context, op *requestOp, msg interface{}) error {
 	select {
 	case c.requestOp <- op:
+		glog.Infoln("sending ", msg)
 		if glog.V(logger.Detail) {
 			glog.Info("sending ", msg)
 		}
 		err := c.write(ctx, msg)
+		glog.Infoln("sending done", err)
 		c.sendDone <- err
 		return err
 	case <-ctx.Done():
@@ -496,17 +499,17 @@ func (c *Client) dispatch(conn net.Conn) {
 			for _, msg := range batch {
 				switch {
 				case msg.isNotification():
-					if glog.V(logger.Detail) {
+					if glog.V(logger.Info) {
 						glog.Info("<-readResp: notification ", msg)
 					}
 					c.handleNotification(msg)
 				case msg.isResponse():
-					if glog.V(logger.Detail) {
+					if glog.V(logger.Info) {
 						glog.Info("<-readResp: response ", msg)
 					}
 					c.handleResponse(msg)
 				default:
-					if glog.V(logger.Debug) {
+					if glog.V(logger.Info) {
 						glog.Error("<-readResp: dropping weird message", msg)
 					}
 					// TODO: maybe close
@@ -514,7 +517,7 @@ func (c *Client) dispatch(conn net.Conn) {
 			}
 
 		case err := <-c.readErr:
-			glog.V(logger.Debug).Infof("<-readErr: %v", err)
+			glog.V(logger.Info).Infof("<-readErr: %v", err)
 			c.closeRequestOps(err)
 			conn.Close()
 			reading = false
@@ -594,6 +597,7 @@ func (c *Client) handleNotification(msg *jsonrpcMessage) {
 }
 
 func (c *Client) handleResponse(msg *jsonrpcMessage) {
+	glog.Infoln("rpc.client.handleResponse", msg)
 	op := c.respWait[string(msg.ID)]
 	if op == nil {
 		glog.V(logger.Debug).Infof("unsolicited response %v", msg)

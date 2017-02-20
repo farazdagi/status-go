@@ -71,7 +71,9 @@ func (self *LightState) HasAccount(ctx context.Context, addr common.Address) (bo
 // GetBalance retrieves the balance from the given address or 0 if the account does
 // not exist
 func (self *LightState) GetBalance(ctx context.Context, addr common.Address) (*big.Int, error) {
+	glog.Infoln("GetStateObject: start")
 	stateObject, err := self.GetStateObject(ctx, addr)
+	glog.Infoln("GetStateObject: end")
 	if err != nil {
 		return common.Big0, err
 	}
@@ -212,12 +214,16 @@ func (self *LightState) GetStateObject(ctx context.Context, addr common.Address)
 		return nil, nil
 	}
 
+	glog.Infoln("LightState.GetStateObject: decode object")
 	stateObject, err = DecodeObject(ctx, self.id, addr, self.odr, []byte(data))
 	if err != nil {
 		return nil, err
 	}
+	glog.Infoln("LightState.GetStateObject: decoded")
 
+	glog.Infoln("LightState.GetStateObject: got (now setting it back)")
 	self.SetStateObject(stateObject)
+	glog.Infoln("LightState.GetStateObject: set")
 
 	return stateObject, nil
 }

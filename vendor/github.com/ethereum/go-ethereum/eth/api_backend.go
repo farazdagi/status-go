@@ -18,6 +18,7 @@ package eth
 
 import (
 	"math/big"
+	"github.com/ethereum/go-ethereum/logger/glog"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
@@ -209,6 +210,7 @@ type EthApiState struct {
 }
 
 func (s EthApiState) GetBalance(ctx context.Context, addr common.Address) (*big.Int, error) {
+	glog.Infoln("EthApiState.GetBalance")
 	return s.state.GetBalance(addr), nil
 }
 

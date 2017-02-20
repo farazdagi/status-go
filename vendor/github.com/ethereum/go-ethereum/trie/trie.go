@@ -154,12 +154,16 @@ func (t *Trie) TryGet(key []byte) ([]byte, error) {
 }
 
 func (t *Trie) tryGet(origNode node, key []byte, pos int) (value []byte, newnode node, didResolve bool, err error) {
+	glog.Infoln("Trie.tryGet: start")
 	switch n := (origNode).(type) {
 	case nil:
+		glog.Infoln("Trie.tryGet: nil returned")
 		return nil, nil, false, nil
 	case valueNode:
+		glog.Infoln("Trie.tryGet: valueNode returned")
 		return n, n, false, nil
 	case *shortNode:
+		glog.Infoln("Trie.tryGet: shortNode returned")
 		if len(key)-pos < len(n.Key) || !bytes.Equal(n.Key, key[pos:pos+len(n.Key)]) {
 			// key not found in trie
 			return nil, n, false, nil
@@ -172,6 +176,7 @@ func (t *Trie) tryGet(origNode node, key []byte, pos int) (value []byte, newnode
 		}
 		return value, n, didResolve, err
 	case *fullNode:
+		glog.Infoln("Trie.tryGet: fullNode returned")
 		value, newnode, didResolve, err = t.tryGet(n.Children[key[pos]], key, pos+1)
 		if err == nil && didResolve {
 			n = n.copy()
@@ -180,6 +185,7 @@ func (t *Trie) tryGet(origNode node, key []byte, pos int) (value []byte, newnode
 		}
 		return value, n, didResolve, err
 	case hashNode:
+		glog.Infoln("Trie.tryGet: hashNode returned")
 		child, err := t.resolveHash(n, key[:pos], key[pos:])
 		if err != nil {
 			return nil, n, true, err

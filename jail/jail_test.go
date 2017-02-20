@@ -666,10 +666,10 @@ func TestJailBlockingDuringSync(t *testing.T) {
 	}
 
 	// reset chain data, forcing re-sync
-	if err := geth.NodeManagerInstance().ResetChainData(); err != nil {
-		panic(err)
-	}
-	time.Sleep(5 * time.Second) // so that sync has enough time to start
+	//if err := geth.NodeManagerInstance().ResetChainData(); err != nil {
+	//	panic(err)
+	//}
+	//time.Sleep(5 * time.Second) // so that sync has enough time to start
 
 	jailInstance := jail.Init("")
 	jailInstance.Parse(CHAT_ID_CALL, "")
@@ -744,14 +744,38 @@ func TestJailBlockingDuringSync(t *testing.T) {
 
 	testCases := []TestCase{
 		{
+			"getZeroBalance",
+			`
+				var getZeroBalanceResponse = web3.fromWei(web3.eth.getBalance('` + TEST_ADDRESS + `'), 'ether');
+			`,
+			makeDoNothingHandler(),
+			func(responseValue otto.Value, returnedByWaiter interface{}) bool {
+				glog.Infoln(responseValue, returnedByWaiter)
+				response, err := responseValue.ToInteger()
+				if err != nil {
+					glog.Infof("cannot parse result: %v", err)
+					t.Errorf("cannot parse result: %v", err)
+					return false
+				}
+
+				if response == 0 {
+					return true
+				}
+
+				return false
+			},
+		},
+		{
 			"getBalance",
 			`
 				var getBalanceResponse = web3.fromWei(web3.eth.getBalance('` + TEST_ADDRESS + `'), 'ether');
 			`,
 			makeDoNothingHandler(),
 			func(responseValue otto.Value, returnedByWaiter interface{}) bool {
+				glog.Infoln(responseValue, returnedByWaiter)
 				response, err := responseValue.ToInteger()
 				if err != nil {
+					glog.Infof("cannot parse result: %v", err)
 					t.Errorf("cannot parse result: %v", err)
 					return false
 				}
@@ -862,12 +886,22 @@ func TestJailBlockingDuringSync(t *testing.T) {
 		},
 	}
 
+	glog.Infoln("before tests")
 	for _, testCase := range testCases {
+		glog.Infof("start: %v", testCase.name)
+		abortPanic := make(chan struct{})
+		geth.PanicAfter(2*time.Second, abortPanic, "TestJailBlockingDuringSync: jail call takes too long to execute")
+
 		// prepare notification handler
 		testCase.handler.activate(testCase.handler.waiter)
+		glog.Infof("activated: %v", testCase.name)
 
 		// execute test code
-		vm.Run(testCase.code)
+		_, err := vm.Run(testCase.code)
+		if err != nil {
+			glog.Infoln(err)
+		}
+		glog.Infof("run finished: %v", testCase.name)
 
 		// wait for handler (if necessary)
 		returnedByWaiter := <-testCase.handler.waiter
@@ -878,11 +912,16 @@ func TestJailBlockingDuringSync(t *testing.T) {
 			t.Errorf("cannot obtain result of custom code: %v", err)
 			return
 		}
+		glog.Infof("response obtained: %v", testCase.name)
 
 		if !testCase.check(responseValue, returnedByWaiter) {
 			t.Fatalf("case failed: %v", testCase.name)
 			return
 		}
+
+		abortPanic <- struct{}{}
+		glog.Infof("end: %v", testCase.name)
+		time.Sleep(20 * time.Second) // allow sync to unwind
 	}
 
 	abortPanic <- struct{}{}

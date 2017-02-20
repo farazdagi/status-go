@@ -207,6 +207,7 @@ func (jail *Jail) Send(chatId string, call otto.FunctionCall) (response otto.Val
 		go func() {
 			errc2 <- <-errc
 		}()
+		glog.Infoln("jail.client.Call: PRE")
 		errc <- client.Call(&result, req.Method, req.Params...)
 		err = <-errc2
 

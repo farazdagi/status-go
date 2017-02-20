@@ -20,6 +20,8 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/trie"
 	"golang.org/x/net/context"
+	"github.com/ethereum/go-ethereum/logger/glog"
+	"reflect"
 )
 
 // LightTrie is an ODR-capable wrapper around trie.SecureTrie
@@ -46,6 +48,7 @@ func NewLightTrie(id *TrieID, odr OdrBackend, useFakeMap bool) *LightTrie {
 // database if successful
 func (t *LightTrie) retrieveKey(ctx context.Context, key []byte) bool {
 	r := &TrieRequest{Id: t.id, Key: key}
+	glog.Infoln("LightTrie.retrieveKey: ", string(key), reflect.TypeOf(t.odr))
 	return t.odr.Retrieve(ctx, r) == nil
 }
 
@@ -53,6 +56,7 @@ func (t *LightTrie) retrieveKey(ctx context.Context, key []byte) bool {
 // an error type other than MissingNodeError
 func (t *LightTrie) do(ctx context.Context, fallbackKey []byte, fn func() error) error {
 	err := fn()
+	glog.Infoln("LightTrie.do ", err)
 	for err != nil {
 		mn, ok := err.(*trie.MissingNodeError)
 		if !ok {
@@ -76,13 +80,16 @@ func (t *LightTrie) do(ctx context.Context, fallbackKey []byte, fn func() error)
 // Get returns the value for key stored in the trie.
 // The value bytes must not be modified by the caller.
 func (t *LightTrie) Get(ctx context.Context, key []byte) (res []byte, err error) {
+	glog.Infoln("LightTrie.Get: start")
 	err = t.do(ctx, key, func() (err error) {
 		if t.trie == nil {
 			t.trie, err = trie.NewSecure(t.id.Root, t.db, 0)
 		}
+		glog.Infoln("LightTrie.Get: try get")
 		if err == nil {
 			res, err = t.trie.TryGet(key)
 		}
+		glog.Infoln("LightTrie.Get: got")
 		return
 	})
 	return

@@ -285,24 +285,24 @@ func (d *Downloader) UnregisterPeer(id string) error {
 // Synchronise tries to sync up our local block chain with a remote peer, both
 // adding various sanity checks as well as wrapping it with various log entries.
 func (d *Downloader) Synchronise(id string, head common.Hash, td *big.Int, mode SyncMode) error {
-	glog.V(logger.Detail).Infof("Attempting synchronisation: %v, head [%x…], TD %v", id, head[:4], td)
+	glog.V(logger.Info).Infof("Attempting synchronisation: %v, head [%x…], TD %v", id, head[:4], td)
 
 	err := d.synchronise(id, head, td, mode)
 	switch err {
 	case nil:
-		glog.V(logger.Detail).Infof("Synchronisation completed")
+		glog.V(logger.Info).Infof("Synchronisation completed")
 
 	case errBusy:
-		glog.V(logger.Detail).Infof("Synchronisation already in progress")
+		glog.V(logger.Info).Infof("Synchronisation already in progress")
 
 	case errTimeout, errBadPeer, errStallingPeer,
 		errEmptyHeaderSet, errPeersUnavailable, errTooOld,
 		errInvalidAncestor, errInvalidChain:
-		glog.V(logger.Debug).Infof("Removing peer %v: %v", id, err)
+		glog.V(logger.Info).Infof("Removing peer %v: %v", id, err)
 		d.dropPeer(id)
 
 	default:
-		glog.V(logger.Warn).Infof("Synchronisation failed: %v", err)
+		glog.V(logger.Info).Infof("Synchronisation failed: %v", err)
 	}
 	return err
 }
@@ -311,6 +311,7 @@ func (d *Downloader) Synchronise(id string, head common.Hash, td *big.Int, mode 
 // it will use the best peer possible and synchronize if it's TD is higher than our own. If any of the
 // checks fail an error will be returned. This method is synchronous
 func (d *Downloader) synchronise(id string, hash common.Hash, td *big.Int, mode SyncMode) error {
+	glog.Infoln("Downloader.synchronise")
 	// Mock out the synchronisation if testing
 	if d.synchroniseMock != nil {
 		return d.synchroniseMock(id, hash)

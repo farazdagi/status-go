@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common/mclock"
+	"github.com/ethereum/go-ethereum/logger/glog"
 )
 
 // ErrNoPeers is returned if no peers capable of serving a queued request are
@@ -238,8 +239,10 @@ func (d *requestDistributor) nextRequest() (distPeer, *distReq, time.Duration) {
 // If the request is cancelled or timed out without suitable peers, the channel is
 // closed without sending any peer references to it.
 func (d *requestDistributor) queue(r *distReq) chan distPeer {
+	glog.Infoln("\n\n\n-------------->\nrequestDistributor.queue: pre-lock", r.request)
 	d.lock.Lock()
 	defer d.lock.Unlock()
+	glog.Infoln("requestDistributor.queue: post-lock")
 
 	if r.reqOrder == 0 {
 		d.lastReqOrder++
@@ -276,6 +279,7 @@ func (d *requestDistributor) queue(r *distReq) chan distPeer {
 	}
 
 	r.sentChn = make(chan distPeer, 1)
+	glog.Infoln("requestDistributor.queue: pre-return")
 	return r.sentChn
 }
 

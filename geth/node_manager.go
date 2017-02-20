@@ -375,8 +375,10 @@ func (m *NodeManager) onNodeStarted() {
 
 	// send signal up to native app
 	SendSignal(SignalEnvelope{
-		Type:  EventNodeStarted,
-		Event: struct{}{},
+		Type: EventNodeStarted,
+		Event: map[string]string{
+			"message": "hello from updated",
+		},
 	})
 }
 

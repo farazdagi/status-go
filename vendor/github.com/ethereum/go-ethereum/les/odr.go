@@ -28,6 +28,7 @@ import (
 	"github.com/ethereum/go-ethereum/logger"
 	"github.com/ethereum/go-ethereum/logger/glog"
 	"golang.org/x/net/context"
+	"reflect"
 )
 
 var (
@@ -164,6 +165,7 @@ func (self *LesOdr) requestPeer(req *sentReq, peer *peer, delivered, timeout cha
 // networkRequest sends a request to known peers until an answer is received
 // or the context is cancelled
 func (self *LesOdr) networkRequest(ctx context.Context, lreq LesOdrRequest) error {
+	glog.Infoln("LesOrdr.networkRequest: start")
 	answered := make(chan struct{})
 	req := &sentReq{
 		valFunc:  lreq.Validate,
@@ -199,10 +201,13 @@ func (self *LesOdr) networkRequest(ctx context.Context, lreq LesOdrRequest) erro
 		go self.requestPeer(req, p, delivered, timeout, reqWg)
 		return func() { lreq.Request(reqID, p) }
 	})
+	glog.Infoln("LesOrdr.networkRequest: pre-flight")
 
 	self.mlock.Lock()
 	self.sentReqs[reqID] = req
 	self.mlock.Unlock()
+
+	glog.Infoln("LesOrdr.networkRequest: post-flight")
 
 	go func() {
 		reqWg.Wait()
@@ -240,6 +245,20 @@ func (self *LesOdr) networkRequest(ctx context.Context, lreq LesOdrRequest) erro
 // If the network retrieval was successful, it stores the object in local db.
 func (self *LesOdr) Retrieve(ctx context.Context, req light.OdrRequest) (err error) {
 	lreq := LesRequest(req)
+
+	//if trieReq, ok := lreq.(*TrieRequest); ok {
+	//	//trieReq.Id.
+	//	hash := getChtRoot(self.db, 110)
+	//	glog.Infoln("LesOdr.Retrieve ", hash.Hex(), trieReq.Id.BlockNumber)
+	//	emptyHash := common.Hash{}
+	//	if hash != emptyHash {
+	//		panic("ccc")
+	//		glog.Infoln("OPTIMIZATION: hash taked from local db")
+	//		return
+	//	}
+	//}
+
+	glog.Infoln("LesOdr.Retrieve: ", reflect.TypeOf(lreq))
 	err = self.networkRequest(ctx, lreq)
 	if err == nil {
 		// retrieved from network, store in db

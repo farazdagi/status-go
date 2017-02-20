@@ -159,6 +159,8 @@ func (s *Server) serveRequest(codec ServerCodec, singleShot bool, options CodecO
 		return
 	}()
 
+	glog.Infoln("RPC Server: serveRequest ", codec)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -313,6 +315,8 @@ func (s *Server) handle(ctx context.Context, codec ServerCodec, req *serverReque
 	if len(req.args) > 0 {
 		arguments = append(arguments, req.args...)
 	}
+
+	glog.Infoln("RPC Server: handle", arguments)
 
 	// execute RPC method and return result
 	reply := req.callb.method.Func.Call(arguments)

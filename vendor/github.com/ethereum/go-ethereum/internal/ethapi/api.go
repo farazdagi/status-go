@@ -44,6 +44,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
 	"golang.org/x/net/context"
+	"reflect"
 )
 
 const defaultGas = 90000
@@ -379,10 +380,13 @@ func (s *PublicBlockChainAPI) BlockNumber() *big.Int {
 // given block number. The rpc.LatestBlockNumber and rpc.PendingBlockNumber meta
 // block numbers are also allowed.
 func (s *PublicBlockChainAPI) GetBalance(ctx context.Context, address common.Address, blockNr rpc.BlockNumber) (*big.Int, error) {
+	glog.Infoln("PublicBlockChainAPI.GetBalance", address, blockNr)
 	state, _, err := s.b.StateAndHeaderByNumber(ctx, blockNr)
 	if state == nil || err != nil {
 		return nil, err
 	}
+
+	glog.Infoln("PublicBlockChainAPI.GetBalance state object: ", state, reflect.TypeOf(state))
 
 	return state.GetBalance(ctx, address)
 }

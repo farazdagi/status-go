@@ -15,7 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/les"
-	"github.com/ethereum/go-ethereum/logger/glog"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/p2p/discover"
 	"github.com/ethereum/go-ethereum/p2p/discv5"
@@ -57,8 +56,10 @@ func (n *Node) GethStack() *node.Node {
 
 // MakeNode create a geth node entity
 func MakeNode(config *params.NodeConfig) *Node {
-	glog.CopyStandardLogTo("INFO")
-	glog.SetToStderr(true)
+	// setup logging
+	if _, err := params.SetupLogger(config); err != nil {
+		Fatalf(err)
+	}
 
 	// configure required node (should you need to update node's config, e.g. add bootstrap nodes, see node.Config)
 	stackConfig := &node.Config{

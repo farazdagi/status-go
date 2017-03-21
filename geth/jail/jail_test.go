@@ -16,13 +16,9 @@ import (
 )
 
 const (
-	CHAT_ID_INIT         = "CHAT_ID_INIT_TEST"
-	CHAT_ID_CALL         = "CHAT_ID_CALL_TEST"
-	CHAT_ID_SEND         = "CHAT_ID_CALL_SEND"
-	CHAT_ID_NON_EXISTENT = "CHAT_IDNON_EXISTENT"
-
-	TESTDATA_STATUS_JS  = "testdata/status.js"
-	TESTDATA_TX_SEND_JS = "testdata/tx-send/"
+	chatID           = "testChat"
+	statusJSFilePath = "testdata/status.js"
+	txSendFolder     = "testdata/tx-send/"
 )
 
 var testConfig *geth.TestConfig
@@ -50,17 +46,17 @@ func TestJailUnInited(t *testing.T) {
 	expectedError := errorWrapper(jail.ErrInvalidJail)
 
 	var jailInstance *jail.Jail
-	response := jailInstance.Parse(CHAT_ID_CALL, ``)
+	response := jailInstance.Parse(chatID, ``)
 	if response != expectedError {
 		t.Errorf("error expected, but got: %v", response)
 	}
 
-	response = jailInstance.Call(CHAT_ID_CALL, `["commands", "testCommand"]`, `{"val": 12}`)
+	response = jailInstance.Call(chatID, `["commands", "testCommand"]`, `{"val": 12}`)
 	if response != expectedError {
 		t.Errorf("error expected, but got: %v", response)
 	}
 
-	_, err := jailInstance.GetVM(CHAT_ID_CALL)
+	_, err := jailInstance.GetVM(chatID)
 	if err != jail.ErrInvalidJail {
 		t.Errorf("error expected, but got: %v", err)
 	}
@@ -76,18 +72,18 @@ func TestJailUnInited(t *testing.T) {
 		t.Error("jail instance shouldn't be nil at this point")
 		return
 	}
-	statusJS := geth.LoadFromFile(TESTDATA_STATUS_JS) + `;
+	statusJS := geth.LoadFromFile(statusJSFilePath) + `;
 	_status_catalog.commands["testCommand"] = function (params) {
 		return params.val * params.val;
 	};`
-	response = jailInstance.Parse(CHAT_ID_CALL, statusJS)
+	response = jailInstance.Parse(chatID, statusJS)
 	expectedResponse := `{"result": {"commands":{},"responses":{}}}`
 	if response != expectedResponse {
 		t.Errorf("unexpected response received: %v", response)
 	}
 
 	// however, we still expect issue voiced if somebody tries to execute code with Call
-	response = jailInstance.Call(CHAT_ID_CALL, `["commands", "testCommand"]`, `{"val": 12}`)
+	response = jailInstance.Call(chatID, `["commands", "testCommand"]`, `{"val": 12}`)
 	if response != errorWrapper(geth.ErrInvalidGethNode) {
 		t.Errorf("error expected, but got: %v", response)
 	}
@@ -98,7 +94,7 @@ func TestJailUnInited(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	response = jailInstance.Call(CHAT_ID_CALL, `["commands", "testCommand"]`, `{"val": 12}`)
+	response = jailInstance.Call(chatID, `["commands", "testCommand"]`, `{"val": 12}`)
 	expectedResponse = `{"result": 144}`
 	if response != expectedResponse {
 		t.Errorf("expected response is not returned: expected %s, got %s", expectedResponse, response)
@@ -125,7 +121,7 @@ func TestJailInit(t *testing.T) {
 	  return x * x;
 	};
 	`
-	response := jailInstance.Parse(CHAT_ID_INIT, extraCode)
+	response := jailInstance.Parse("newChat", extraCode)
 
 	expectedResponse := `{"result": {"foo":"bar"}}`
 
@@ -145,22 +141,22 @@ func TestJailFunctionCall(t *testing.T) {
 	jailInstance := jail.Init("")
 
 	// load Status JS and add test command to it
-	statusJS := geth.LoadFromFile(TESTDATA_STATUS_JS) + `;
+	statusJS := geth.LoadFromFile(statusJSFilePath) + `;
 	_status_catalog.commands["testCommand"] = function (params) {
 		return params.val * params.val;
 	};`
-	jailInstance.Parse(CHAT_ID_CALL, statusJS)
+	jailInstance.Parse(chatID, statusJS)
 
 	// call with wrong chat id
-	response := jailInstance.Call(CHAT_ID_NON_EXISTENT, "", "")
-	expectedError := `{"error":"Cell[CHAT_IDNON_EXISTENT] doesn't exist."}`
+	response := jailInstance.Call("chatIdNonExistent", "", "")
+	expectedError := `{"error":"Cell[chatIdNonExistent] doesn't exist."}`
 	if response != expectedError {
 		t.Errorf("expected error is not returned: expected %s, got %s", expectedError, response)
 		return
 	}
 
 	// call extraFunc()
-	response = jailInstance.Call(CHAT_ID_CALL, `["commands", "testCommand"]`, `{"val": 12}`)
+	response = jailInstance.Call(chatID, `["commands", "testCommand"]`, `{"val": 12}`)
 	expectedResponse := `{"result": 144}`
 	if response != expectedResponse {
 		t.Errorf("expected response is not returned: expected %s, got %s", expectedResponse, response)
@@ -178,11 +174,11 @@ func TestJailRPCSend(t *testing.T) {
 	jailInstance := jail.Init("")
 
 	// load Status JS and add test command to it
-	statusJS := geth.LoadFromFile(TESTDATA_STATUS_JS)
-	jailInstance.Parse(CHAT_ID_CALL, statusJS)
+	statusJS := geth.LoadFromFile(statusJSFilePath)
+	jailInstance.Parse(chatID, statusJS)
 
 	// obtain VM for a given chat (to send custom JS to jailed version of Send())
-	vm, err := jailInstance.GetVM(CHAT_ID_CALL)
+	vm, err := jailInstance.GetVM(chatID)
 	if err != nil {
 		t.Errorf("cannot get VM: %v", err)
 		return
@@ -371,16 +367,16 @@ func TestJailSendQueuedTransaction(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		jailInstance := jail.Init(geth.LoadFromFile(TESTDATA_TX_SEND_JS + test.file))
+		jailInstance := jail.Init(geth.LoadFromFile(txSendFolder + test.file))
 		geth.PanicAfter(60*time.Second, txCompletedSuccessfully, test.name)
-		jailInstance.Parse(CHAT_ID_SEND, ``)
+		jailInstance.Parse(chatID, ``)
 
 		requireMessageId = test.requireMessageId
 
 		for _, command := range test.commands {
 			go func(jail *jail.Jail, test testCase, command testCommand) {
 				t.Logf("->%s: %s", test.name, command.command)
-				response := jail.Call(CHAT_ID_SEND, command.command, command.params)
+				response := jail.Call(chatID, command.command, command.params)
 				var txHash common.Hash
 				if command.command == `["commands", "send"]` {
 					txHash = <-txHashes
@@ -428,16 +424,16 @@ func TestJailGetVM(t *testing.T) {
 
 	jailInstance := jail.Init("")
 
-	expectedError := `Cell[` + CHAT_ID_NON_EXISTENT + `] doesn't exist.`
-	_, err = jailInstance.GetVM(CHAT_ID_NON_EXISTENT)
+	expectedError := `Cell[nonExistentChat] doesn't exist.`
+	_, err = jailInstance.GetVM("nonExistentChat")
 	if err == nil || err.Error() != expectedError {
 		t.Error("expected error, but call succeeded")
 	}
 
 	// now let's create VM..
-	jailInstance.Parse(CHAT_ID_CALL, ``)
+	jailInstance.Parse(chatID, ``)
 	// ..and see if VM becomes available
-	_, err = jailInstance.GetVM(CHAT_ID_CALL)
+	_, err = jailInstance.GetVM(chatID)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -451,10 +447,10 @@ func TestIsConnected(t *testing.T) {
 	}
 
 	jailInstance := jail.Init("")
-	jailInstance.Parse(CHAT_ID_CALL, "")
+	jailInstance.Parse(chatID, "")
 
 	// obtain VM for a given chat (to send custom JS to jailed version of Send())
-	vm, err := jailInstance.GetVM(CHAT_ID_CALL)
+	vm, err := jailInstance.GetVM(chatID)
 	if err != nil {
 		t.Errorf("cannot get VM: %v", err)
 		return
@@ -496,10 +492,10 @@ func TestLocalStorageSet(t *testing.T) {
 	}
 
 	jailInstance := jail.Init("")
-	jailInstance.Parse(CHAT_ID_CALL, "")
+	jailInstance.Parse(chatID, "")
 
 	// obtain VM for a given chat (to send custom JS to jailed version of Send())
-	vm, err := jailInstance.GetVM(CHAT_ID_CALL)
+	vm, err := jailInstance.GetVM(chatID)
 	if err != nil {
 		t.Errorf("cannot get VM: %v", err)
 		return
@@ -523,8 +519,8 @@ func TestLocalStorageSet(t *testing.T) {
 				t.Error("Chat id is required, but not found")
 				return
 			}
-			if chatId != CHAT_ID_CALL {
-				t.Errorf("incorrect chat id: expected %q, got: %q", CHAT_ID_CALL, chatId)
+			if chatId != chatID {
+				t.Errorf("incorrect chat id: expected %q, got: %q", chatID, chatId)
 				return
 			}
 
@@ -588,10 +584,10 @@ func TestContractDeployment(t *testing.T) {
 	}
 
 	jailInstance := jail.Init("")
-	jailInstance.Parse(CHAT_ID_CALL, "")
+	jailInstance.Parse(chatID, "")
 
 	// obtain VM for a given chat (to send custom JS to jailed version of Send())
-	vm, err := jailInstance.GetVM(CHAT_ID_CALL)
+	vm, err := jailInstance.GetVM(chatID)
 	if err != nil {
 		t.Errorf("cannot get VM: %v", err)
 		return
@@ -678,10 +674,10 @@ func TestGasEstimation(t *testing.T) {
 	}
 
 	jailInstance := jail.Init("")
-	jailInstance.Parse(CHAT_ID_CALL, "")
+	jailInstance.Parse(chatID, "")
 
 	// obtain VM for a given chat (to send custom JS to jailed version of Send())
-	vm, err := jailInstance.GetVM(CHAT_ID_CALL)
+	vm, err := jailInstance.GetVM(chatID)
 	if err != nil {
 		t.Errorf("cannot get VM: %v", err)
 		return

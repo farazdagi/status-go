@@ -10,12 +10,20 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	whisper "github.com/ethereum/go-ethereum/whisper/whisperv2"
 	"github.com/status-im/status-go/geth"
 	"github.com/status-im/status-go/geth/jail"
 	"github.com/status-im/status-go/geth/params"
 )
 
 const (
+	whisperMessage1  = `test message 1 (K1 -> K2, signed+encrypted, from us)`
+	whisperMessage2  = `test message 2 (K1 -> K1, signed+encrypted to ourselves)`
+	whisperMessage3  = `test message 3 (K1 -> "", signed broadcast)`
+	whisperMessage4  = `test message 4 ("" -> "", anon broadcast)`
+	whisperMessage5  = `test message 5 ("" -> K1, encrypted anon broadcast)`
+	whisperMessage6  = `test message 6 (K2 -> K1, signed+encrypted, to us)`
 	chatID           = "testChat"
 	statusJSFilePath = "testdata/status.js"
 	txSendFolder     = "testdata/tx-send/"
@@ -752,5 +760,313 @@ func TestGasEstimation(t *testing.T) {
 	if !reflect.DeepEqual(response, expectedResponse) {
 		t.Errorf("expected response is not returned: expected %s, got %s", expectedResponse, response)
 		return
+	}
+}
+
+func TestJailWhisperVer2(t *testing.T) {
+	err := geth.PrepareTestNode()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	whisperService, err := geth.NodeManagerInstance().WhisperService()
+	if err != nil {
+		t.Errorf("whisper service not running: %v", err)
+	}
+	whisperAPI := whisper.NewPublicWhisperAPI(whisperService)
+
+	// account1
+	_, accountKey1, err := geth.AddressToDecryptedAccount(testConfig.Account1.Address, testConfig.Account1.Password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountKey1Hex := common.ToHex(crypto.FromECDSAPub(&accountKey1.PrivateKey.PublicKey))
+
+	whisperService.AddIdentity(accountKey1.PrivateKey)
+	if ok, err := whisperAPI.HasIdentity(accountKey1Hex); err != nil || !ok {
+		t.Fatalf("identity not injected: %v", accountKey1Hex)
+	}
+
+	// account2
+	_, accountKey2, err := geth.AddressToDecryptedAccount(testConfig.Account2.Address, testConfig.Account2.Password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountKey2Hex := common.ToHex(crypto.FromECDSAPub(&accountKey2.PrivateKey.PublicKey))
+
+	whisperService.AddIdentity(accountKey2.PrivateKey)
+	if ok, err := whisperAPI.HasIdentity(accountKey2Hex); err != nil || !ok {
+		t.Fatalf("identity not injected: %v", accountKey2Hex)
+	}
+
+	passedTests := map[string]bool{
+		whisperMessage1: false,
+		whisperMessage2: false,
+		whisperMessage3: false,
+		whisperMessage4: false,
+		whisperMessage5: false,
+		whisperMessage6: false,
+	}
+
+	jailInstance := jail.Init("")
+
+	testCases := []struct {
+		name     string
+		watcher  func()
+		testCode string
+	}{
+		{
+			"test 0: ensure correct version of Whisper is used",
+			func() {},
+			`
+				var expectedVersion = '0x2';
+				if (web3.version.whisper != expectedVersion) {
+					throw 'unexpected shh version, expected: ' + expectedVersion + ', got: ' + web3.version.whisper;
+				}
+			`,
+		},
+		{
+			"test 1: encrypted signed message from us (From != nil && To != nil)",
+			func() {
+				whisperService.Watch(whisper.Filter{
+					From: &accountKey1.PrivateKey.PublicKey,
+					To:   &accountKey2.PrivateKey.PublicKey,
+					Topics: [][]whisper.Topic{
+						whisper.NewTopicsFromStrings("example1"),
+					},
+					Fn: func(msg *whisper.Message) {
+						t.Logf("message received: %s", msg.Payload)
+						passedTests[whisperMessage1] = true
+					},
+				})
+			},
+			`
+				var identity1 = '` + accountKey1Hex + `';
+				if (!web3.shh.hasIdentity(identity1)) {
+					throw 'idenitity "` + accountKey1Hex + `" not found in whisper';
+				}
+
+				var identity2 = '` + accountKey2Hex + `';
+				if (!web3.shh.hasIdentity(identity2)) {
+					throw 'idenitity "` + accountKey2Hex + `" not found in whisper';
+				}
+
+				var topic = 'example1';
+				var payload = '` + whisperMessage1 + `';
+				var message = {
+				  from: identity1,
+				  to: identity2,
+				  topics: [web3.fromAscii(topic)],
+				  payload: payload,
+				  ttl: 20,
+				};
+
+				if (!shh.post(message)) {
+					throw 'message not sent: ' + message;
+				}
+			`,
+		},
+		{
+			"test 2: encrypted signed message to yourself (From != nil && To != nil)",
+			func() {
+				whisperService.Watch(whisper.Filter{
+					From: &accountKey1.PrivateKey.PublicKey,
+					To:   &accountKey1.PrivateKey.PublicKey,
+					Topics: [][]whisper.Topic{
+						whisper.NewTopicsFromStrings("example2"),
+					},
+					Fn: func(msg *whisper.Message) {
+						t.Logf("message received: %s", msg.Payload)
+						passedTests[whisperMessage2] = true
+					},
+				})
+			},
+			`
+				var identity = '` + accountKey1Hex + `';
+				if (!web3.shh.hasIdentity(identity)) {
+					throw 'idenitity "` + accountKey1Hex + `" not found in whisper';
+				}
+
+				var topic = 'example2';
+				var payload = '` + whisperMessage2 + `';
+				var message = {
+				  from: identity,
+				  to: identity,
+				  topics: [web3.fromAscii(topic)],
+				  payload: payload,
+				  ttl: 20,
+				};
+
+				if (!shh.post(message)) {
+					throw 'message not sent: ' + message;
+				}
+			`,
+		},
+		{
+			"test 3: signed (known sender) broadcast (From != nil && To == nil)",
+			func() {
+				whisperService.Watch(whisper.Filter{
+					From: &accountKey1.PrivateKey.PublicKey,
+					Topics: [][]whisper.Topic{
+						whisper.NewTopicsFromStrings("example3"),
+					},
+					Fn: func(msg *whisper.Message) {
+						t.Logf("message received: %s", msg.Payload)
+						passedTests[whisperMessage3] = true
+					},
+				})
+			},
+			`
+				var identity = '` + accountKey1Hex + `';
+				if (!web3.shh.hasIdentity(identity)) {
+					throw 'idenitity "` + accountKey1Hex + `" not found in whisper';
+				}
+
+				var topic = 'example3';
+				var payload = '` + whisperMessage3 + `';
+				var message = {
+				  from: identity,
+				  topics: [web3.fromAscii(topic)],
+				  payload: payload,
+				  ttl: 20,
+				};
+
+				if (!shh.post(message)) {
+					throw 'message not sent: ' + message;
+				}
+			`,
+		},
+		{
+			"test 4: anonymous broadcast (From == nil && To == nil)",
+			func() {
+				whisperService.Watch(whisper.Filter{
+					Topics: [][]whisper.Topic{
+						whisper.NewTopicsFromStrings("example4"),
+					},
+					Fn: func(msg *whisper.Message) {
+						t.Logf("message received: %s", msg.Payload)
+						passedTests[whisperMessage4] = true
+					},
+				})
+			},
+			`
+				var topic = 'example4';
+				var payload = '` + whisperMessage4 + `';
+				var message = {
+				  topics: [web3.fromAscii(topic)],
+				  payload: payload,
+				  ttl: 20,
+				};
+
+				if (!shh.post(message)) {
+					throw 'message not sent: ' + message;
+				}
+			`,
+		},
+		{
+			"test 5: encrypted anonymous message (From == nil && To != nil)",
+			func() {
+				whisperService.Watch(whisper.Filter{
+					To: &accountKey2.PrivateKey.PublicKey,
+					Topics: [][]whisper.Topic{
+						whisper.NewTopicsFromStrings("example5"),
+					},
+					Fn: func(msg *whisper.Message) {
+						t.Logf("message received: %s", msg.Payload)
+						passedTests[whisperMessage5] = true
+					},
+				})
+			},
+			`
+				var identity = '` + accountKey2Hex + `';
+				if (!web3.shh.hasIdentity(identity)) {
+					throw 'idenitity "` + accountKey2Hex + `" not found in whisper';
+				}
+
+				var topic = 'example5';
+				var payload = '` + whisperMessage5 + `';
+				var message = {
+				  to: identity,
+				  topics: [web3.fromAscii(topic)],
+				  payload: payload,
+				  ttl: 20,
+				};
+
+				if (!shh.post(message)) {
+					throw 'message not sent: ' + message;
+				}
+			`,
+		},
+		{
+			"test 6: encrypted signed response to us (From != nil && To != nil)",
+			func() {
+				whisperService.Watch(whisper.Filter{
+					From: &accountKey2.PrivateKey.PublicKey,
+					To:   &accountKey1.PrivateKey.PublicKey,
+					Topics: [][]whisper.Topic{
+						whisper.NewTopicsFromStrings("example6"),
+					},
+					Fn: func(msg *whisper.Message) {
+						t.Logf("message received: %s", msg.Payload)
+						passedTests[whisperMessage6] = true
+					},
+				})
+			},
+			`
+				var identity1 = '` + accountKey1Hex + `';
+				if (!web3.shh.hasIdentity(identity1)) {
+					throw 'idenitity "` + accountKey1Hex + `" not found in whisper';
+				}
+
+				var identity2 = '` + accountKey2Hex + `';
+				if (!web3.shh.hasIdentity(identity2)) {
+					throw 'idenitity "` + accountKey2Hex + `" not found in whisper';
+				}
+
+				var topic = 'example6';
+				var payload = '` + whisperMessage6 + `';
+				var message = {
+				  from: identity2,
+				  to: identity1,
+				  topics: [web3.fromAscii(topic)],
+				  payload: payload,
+				  ttl: 20,
+				};
+
+				if (!shh.post(message)) {
+					throw 'message not sent: ' + message;
+				}
+			`,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Log(testCase.name)
+		testCaseKey := crypto.Keccak256Hash([]byte(testCase.name)).Hex()
+		jailInstance.Parse(testCaseKey, `var shh = web3.shh;`)
+		vm, err := jailInstance.GetVM(testCaseKey)
+		if err != nil {
+			t.Errorf("cannot get VM: %v", err)
+			return
+		}
+
+		// install watcher
+		testCase.watcher()
+
+		// post messages
+		if _, err := vm.Run(testCase.testCode); err != nil {
+			t.Error(err)
+			return
+		}
+	}
+
+	time.Sleep(2 * time.Second) // allow whisper to poll
+
+	for testName, passedTest := range passedTests {
+		if !passedTest {
+			t.Fatalf("test not passed: %v", testName)
+
+		}
 	}
 }

@@ -19,6 +19,40 @@ const (
 	whisperMessage5 = "test message 5 (K2 -> K1)"
 )
 
+func TestWhisperFilterRace(t *testing.T) {
+	// TODO this test is a breaking test, which produces panic on whisper2
+	// it should be enabled on whsiper5, where map access is protected and this test will not panic
+	return
+	err := geth.PrepareTestNode()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	time.Sleep(60 * time.Second)
+
+	whisperService, err := geth.NodeManagerInstance().WhisperService()
+	if err != nil {
+		t.Errorf("whisper service not running: %v", err)
+	}
+
+	whisperAPI := whisper.NewPublicWhisperAPI(whisperService)
+
+	filterArgs := whisper.NewFilterArgs{
+		Topics: [][][]byte{
+			{{0x4e, 0x03, 0x65, 0x7a}, {0x34, 0x60, 0x7c, 0x9b}, {0x21, 0x41, 0x7d, 0xf9}},
+			{{0x34, 0x60, 0x7c, 0x9b}},
+			{{0x21, 0x41, 0x7d, 0xf9}, {0x4e, 0x03, 0x65, 0x7a}},
+		},
+	}
+
+	for i := 0; i < 100; i++ {
+		go func() {
+			whisperAPI.NewFilter(filterArgs)
+		}()
+	}
+}
+
 func TestWhisperMessaging(t *testing.T) {
 	err := geth.PrepareTestNode()
 	if err != nil {
@@ -71,7 +105,7 @@ func TestWhisperMessaging(t *testing.T) {
 		//From: crypto.ToECDSAPub(common.FromHex(pubKey1)),
 		//To:   crypto.ToECDSAPub(common.FromHex(pubKey2)),
 		Fn: func(msg *whisper.Message) {
-			//t.Logf("Whisper message received: %s", msg.Payload)
+			t.Logf("Whisper message received: %s", msg.Payload)
 			receivedMessages[string(msg.Payload)] = true
 		},
 	})

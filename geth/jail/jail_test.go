@@ -11,7 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	whisper "github.com/ethereum/go-ethereum/whisper/whisperv2"
+	whisper "github.com/ethereum/go-ethereum/whisper/whisperv5"
 	"github.com/status-im/status-go/geth"
 	"github.com/status-im/status-go/geth/jail"
 	"github.com/status-im/status-go/geth/params"
@@ -763,7 +763,7 @@ func TestGasEstimation(t *testing.T) {
 	}
 }
 
-func TestJailWhisperVer2(t *testing.T) {
+func TestJailWhisper(t *testing.T) {
 	err := geth.PrepareTestNode()
 	if err != nil {
 		t.Error(err)
@@ -808,39 +808,34 @@ func TestJailWhisperVer2(t *testing.T) {
 		whisperMessage5: false,
 		whisperMessage6: false,
 	}
+	installedFilters := map[string]string{
+		whisperMessage1: "",
+		whisperMessage2: "",
+		whisperMessage3: "",
+		whisperMessage4: "",
+		whisperMessage5: "",
+		whisperMessage6: "",
+	}
 
 	jailInstance := jail.Init("")
 
 	testCases := []struct {
-		name     string
-		watcher  func()
-		testCode string
+		name      string
+		testCode  string
+		useFilter bool
 	}{
 		{
 			"test 0: ensure correct version of Whisper is used",
-			func() {},
 			`
-				var expectedVersion = '0x2';
+				var expectedVersion = '0x5';
 				if (web3.version.whisper != expectedVersion) {
 					throw 'unexpected shh version, expected: ' + expectedVersion + ', got: ' + web3.version.whisper;
 				}
 			`,
+			false,
 		},
 		{
 			"test 1: encrypted signed message from us (From != nil && To != nil)",
-			func() {
-				whisperService.Watch(whisper.Filter{
-					From: &accountKey1.PrivateKey.PublicKey,
-					To:   &accountKey2.PrivateKey.PublicKey,
-					Topics: [][]whisper.Topic{
-						whisper.NewTopicsFromStrings("example1"),
-					},
-					Fn: func(msg *whisper.Message) {
-						t.Logf("message received: %s", msg.Payload)
-						passedTests[whisperMessage1] = true
-					},
-				})
-			},
 			`
 				var identity1 = '` + accountKey1Hex + `';
 				if (!web3.shh.hasIdentity(identity1)) {
@@ -854,6 +849,15 @@ func TestJailWhisperVer2(t *testing.T) {
 
 				var topic = 'example1';
 				var payload = '` + whisperMessage1 + `';
+
+				// start watching for messages
+				var filter = shh.filter({
+					from: identity1,
+					to: identity2,
+					topics: [web3.fromAscii(topic)]
+				});
+
+				// post message
 				var message = {
 				  from: identity1,
 				  to: identity2,
@@ -861,27 +865,21 @@ func TestJailWhisperVer2(t *testing.T) {
 				  payload: payload,
 				  ttl: 20,
 				};
-
-				if (!shh.post(message)) {
+				var err = shh.post(message)
+				if (err !== null) {
 					throw 'message not sent: ' + message;
 				}
+
+				var filterName = '` + whisperMessage1 + `';
+				var filterId = filter.filterId;
+				if (!filterId) {
+					throw 'filter not installed properly';
+				}
 			`,
+			true,
 		},
 		{
 			"test 2: encrypted signed message to yourself (From != nil && To != nil)",
-			func() {
-				whisperService.Watch(whisper.Filter{
-					From: &accountKey1.PrivateKey.PublicKey,
-					To:   &accountKey1.PrivateKey.PublicKey,
-					Topics: [][]whisper.Topic{
-						whisper.NewTopicsFromStrings("example2"),
-					},
-					Fn: func(msg *whisper.Message) {
-						t.Logf("message received: %s", msg.Payload)
-						passedTests[whisperMessage2] = true
-					},
-				})
-			},
 			`
 				var identity = '` + accountKey1Hex + `';
 				if (!web3.shh.hasIdentity(identity)) {
@@ -890,6 +888,15 @@ func TestJailWhisperVer2(t *testing.T) {
 
 				var topic = 'example2';
 				var payload = '` + whisperMessage2 + `';
+
+				// start watching for messages
+				var filter = shh.filter({
+					from: identity,
+					to: identity,
+					topics: [web3.fromAscii(topic)],
+				});
+
+				// post message
 				var message = {
 				  from: identity,
 				  to: identity,
@@ -897,26 +904,21 @@ func TestJailWhisperVer2(t *testing.T) {
 				  payload: payload,
 				  ttl: 20,
 				};
-
-				if (!shh.post(message)) {
+				var err = shh.post(message)
+				if (err !== null) {
 					throw 'message not sent: ' + message;
 				}
+
+				var filterName = '` + whisperMessage2 + `';
+				var filterId = filter.filterId;
+				if (!filterId) {
+					throw 'filter not installed properly';
+				}
 			`,
+			true,
 		},
 		{
 			"test 3: signed (known sender) broadcast (From != nil && To == nil)",
-			func() {
-				whisperService.Watch(whisper.Filter{
-					From: &accountKey1.PrivateKey.PublicKey,
-					Topics: [][]whisper.Topic{
-						whisper.NewTopicsFromStrings("example3"),
-					},
-					Fn: func(msg *whisper.Message) {
-						t.Logf("message received: %s", msg.Payload)
-						passedTests[whisperMessage3] = true
-					},
-				})
-			},
 			`
 				var identity = '` + accountKey1Hex + `';
 				if (!web3.shh.hasIdentity(identity)) {
@@ -925,59 +927,81 @@ func TestJailWhisperVer2(t *testing.T) {
 
 				var topic = 'example3';
 				var payload = '` + whisperMessage3 + `';
-				var message = {
-				  from: identity,
-				  topics: [web3.fromAscii(topic)],
-				  payload: payload,
-				  ttl: 20,
-				};
 
-				if (!shh.post(message)) {
+				// generate symmetric key (if doesn't already exist)
+				if (!shh.hasSymKey(topic)) {
+					shh.addSymKey(topic, "0xdeadbeef"); // alternatively: shh.generateSymKey("example3");
+														// to delete key, rely on: shh.deleteSymKey(topic);
+				}
+
+				// start watching for messages
+				var filter = shh.filter({
+					from: identity,
+					topics: [web3.fromAscii(topic)],
+					keyname: topic // you can use some other name for key too
+				});
+
+				// post message
+				var message = {
+					from: identity,
+					topics: [web3.fromAscii(topic)],
+					payload: payload,
+					ttl: 20,
+					keyname: topic
+				};
+				var err = shh.post(message)
+				if (err !== null) {
 					throw 'message not sent: ' + message;
 				}
+
+				var filterName = '` + whisperMessage3 + `';
+				var filterId = filter.filterId;
+				if (!filterId) {
+					throw 'filter not installed properly';
+				}
 			`,
+			true,
 		},
 		{
 			"test 4: anonymous broadcast (From == nil && To == nil)",
-			func() {
-				whisperService.Watch(whisper.Filter{
-					Topics: [][]whisper.Topic{
-						whisper.NewTopicsFromStrings("example4"),
-					},
-					Fn: func(msg *whisper.Message) {
-						t.Logf("message received: %s", msg.Payload)
-						passedTests[whisperMessage4] = true
-					},
-				})
-			},
 			`
 				var topic = 'example4';
 				var payload = '` + whisperMessage4 + `';
-				var message = {
-				  topics: [web3.fromAscii(topic)],
-				  payload: payload,
-				  ttl: 20,
-				};
 
-				if (!shh.post(message)) {
-					throw 'message not sent: ' + message;
+				// generate symmetric key (if doesn't already exist)
+				if (!shh.hasSymKey(topic)) {
+					shh.addSymKey(topic, "0xdeadbeef"); // alternatively: shh.generateSymKey("example3");
+														// to delete key, rely on: shh.deleteSymKey(topic);
+				}
+
+				// start watching for messages
+				var filter = shh.filter({
+					topics: [web3.fromAscii(topic)],
+					keyname: topic // you can use some other name for key too
+				});
+
+				// post message
+				var message = {
+					topics: [web3.fromAscii(topic)],
+					payload: payload,
+					ttl: 20,
+					keyname: topic
+				};
+				var err = shh.post(message)
+				if (err !== null) {
+					throw 'message not sent: ' + err;
+				}
+
+				var filterName = '` + whisperMessage4 + `';
+				var filterId = filter.filterId;
+				if (!filterId) {
+					throw 'filter not installed properly';
 				}
 			`,
+			true,
 		},
 		{
 			"test 5: encrypted anonymous message (From == nil && To != nil)",
-			func() {
-				whisperService.Watch(whisper.Filter{
-					To: &accountKey2.PrivateKey.PublicKey,
-					Topics: [][]whisper.Topic{
-						whisper.NewTopicsFromStrings("example5"),
-					},
-					Fn: func(msg *whisper.Message) {
-						t.Logf("message received: %s", msg.Payload)
-						passedTests[whisperMessage5] = true
-					},
-				})
-			},
 			`
 				var identity = '` + accountKey2Hex + `';
 				if (!web3.shh.hasIdentity(identity)) {
@@ -986,33 +1010,35 @@ func TestJailWhisperVer2(t *testing.T) {
 
 				var topic = 'example5';
 				var payload = '` + whisperMessage5 + `';
-				var message = {
-				  to: identity,
-				  topics: [web3.fromAscii(topic)],
-				  payload: payload,
-				  ttl: 20,
-				};
 
-				if (!shh.post(message)) {
+				// start watching for messages
+				var filter = shh.filter({
+					to: identity,
+					topics: [web3.fromAscii(topic)],
+				});
+
+				// post message
+				var message = {
+					to: identity,
+					topics: [web3.fromAscii(topic)],
+					payload: payload,
+					ttl: 20
+				};
+				var err = shh.post(message)
+				if (err !== null) {
 					throw 'message not sent: ' + message;
 				}
+
+				var filterName = '` + whisperMessage5 + `';
+				var filterId = filter.filterId;
+				if (!filterId) {
+					throw 'filter not installed properly';
+				}
 			`,
+			true,
 		},
 		{
 			"test 6: encrypted signed response to us (From != nil && To != nil)",
-			func() {
-				whisperService.Watch(whisper.Filter{
-					From: &accountKey2.PrivateKey.PublicKey,
-					To:   &accountKey1.PrivateKey.PublicKey,
-					Topics: [][]whisper.Topic{
-						whisper.NewTopicsFromStrings("example6"),
-					},
-					Fn: func(msg *whisper.Message) {
-						t.Logf("message received: %s", msg.Payload)
-						passedTests[whisperMessage6] = true
-					},
-				})
-			},
 			`
 				var identity1 = '` + accountKey1Hex + `';
 				if (!web3.shh.hasIdentity(identity1)) {
@@ -1026,18 +1052,34 @@ func TestJailWhisperVer2(t *testing.T) {
 
 				var topic = 'example6';
 				var payload = '` + whisperMessage6 + `';
+
+				// start watching for messages
+				var filter = shh.filter({
+					from: identity2,
+					to: identity1,
+					topics: [web3.fromAscii(topic)]
+				});
+
+				// post message
 				var message = {
 				  from: identity2,
 				  to: identity1,
 				  topics: [web3.fromAscii(topic)],
 				  payload: payload,
-				  ttl: 20,
+				  ttl: 20
 				};
-
-				if (!shh.post(message)) {
+				var err = shh.post(message)
+				if (err !== null) {
 					throw 'message not sent: ' + message;
 				}
+
+				var filterName = '` + whisperMessage6 + `';
+				var filterId = filter.filterId;
+				if (!filterId) {
+					throw 'filter not installed properly';
+				}
 			`,
+			true,
 		},
 	}
 
@@ -1051,22 +1093,50 @@ func TestJailWhisperVer2(t *testing.T) {
 			return
 		}
 
-		// install watcher
-		testCase.watcher()
-
 		// post messages
 		if _, err := vm.Run(testCase.testCode); err != nil {
 			t.Error(err)
 			return
 		}
+
+		if !testCase.useFilter {
+			continue
+		}
+
+		// update installed filters
+		filterId, err := vm.Get("filterId")
+		if err != nil {
+			t.Errorf("cannot get filterId: %v", err)
+			return
+		}
+		filterName, err := vm.Get("filterName")
+		if err != nil {
+			t.Errorf("cannot get filterName: %v", err)
+			return
+		}
+
+		if _, ok := installedFilters[filterName.String()]; !ok {
+			t.Fatal("unrecognized filter")
+		}
+
+		installedFilters[filterName.String()] = filterId.String()
 	}
 
 	time.Sleep(2 * time.Second) // allow whisper to poll
 
+	for testKey, filter := range installedFilters {
+		if filter != "" {
+			t.Logf("filter found: %v", filter)
+			for _, message := range whisperAPI.GetFilterChanges(filter) {
+				t.Logf("message found: %s", common.FromHex(message.Payload))
+				passedTests[testKey] = true
+			}
+		}
+	}
+
 	for testName, passedTest := range passedTests {
 		if !passedTest {
 			t.Fatalf("test not passed: %v", testName)
-
 		}
 	}
 }

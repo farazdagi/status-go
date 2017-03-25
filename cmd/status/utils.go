@@ -1313,12 +1313,22 @@ func startTestNode(t *testing.T) <-chan struct{} {
 	}
 
 	// import test account (with test ether on it)
-	dst := filepath.Join(geth.TestDataDir, "testnet", "keystore", "test-account.pk")
-	if _, err := os.Stat(dst); os.IsNotExist(err) {
-		err = geth.CopyFile(dst, filepath.Join(geth.RootDir, "data", "test-account.pk"))
-		if err != nil {
-			panic(err)
+	importTestAccount := func(accountFile string) error {
+		dst := filepath.Join(geth.TestDataDir, "keystore", accountFile)
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			err = geth.CopyFile(dst, filepath.Join(geth.RootDir, "data", accountFile))
+			if err != nil {
+				panic(err)
+			}
 		}
+
+		return nil
+	}
+	if err := importTestAccount("test-account1.pk"); err != nil {
+		panic(err)
+	}
+	if err := importTestAccount("test-account2.pk"); err != nil {
+		panic(err)
 	}
 
 	waitForNodeStart := make(chan struct{}, 1)

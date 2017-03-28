@@ -5,9 +5,8 @@ GOBIN = build/bin
 GO ?= latest
 
 statusgo:
-	build/env.sh go build -i -o $(GOBIN)/statusgo -v $(shell build/testnet-flags.sh) ./cmd/status
-	@echo "status go compilation done."
-	@echo "Run \"build/bin/statusgo\" to view available commands"
+	build/env.sh go build -i -o $(GOBIN)/statusd -v $(shell build/testnet-flags.sh) ./cmd/status
+	@echo "\nCompilation done.\nRun \"build/bin/statusd help\" to view available commands."
 
 statusgo-cross: statusgo-android statusgo-ios
 	@echo "Full cross compilation done."
